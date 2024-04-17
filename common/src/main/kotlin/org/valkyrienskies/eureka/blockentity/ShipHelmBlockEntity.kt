@@ -87,7 +87,6 @@ class ShipHelmBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     fun startRiding(player: Player, force: Boolean, blockPos: BlockPos, state: BlockState, level: ServerLevel): Boolean {
-
         for (i in seats.size - 1 downTo 0) {
             if (!seats[i].isVehicle) {
                 seats[i].kill()
@@ -129,7 +128,7 @@ class ShipHelmBlockEntity(pos: BlockPos, state: BlockState) :
         ) { !it.isAir && !EurekaConfig.SERVER.blockBlacklist.contains(Registry.BLOCK.getKey(it.block).toString()) }
 
         if (builtShip == null) {
-            player.sendMessage(TextComponent("Ship is too big! Max size is ${EurekaConfig.SERVER.maxShipBlocks} blocks (changable in the config)"), Util.NIL_UUID)
+            player.sendMessage(TextComponent("Ship is too big! Max size is ${EurekaConfig.SERVER.maxShipBlocks} blocks (changeable in the config)"), Util.NIL_UUID)
             logger.warn("Failed to assemble ship for ${player.name.string}")
         }
     }
@@ -151,7 +150,6 @@ class ShipHelmBlockEntity(pos: BlockPos, state: BlockState) :
         ShipAssembler.unfillShip(
             level as ServerLevel,
             ship,
-            control.aligningTo,
             this.blockPos,
             BlockPos(inWorld.x, inWorld.y, inWorld.z)
         )
@@ -166,7 +164,6 @@ class ShipHelmBlockEntity(pos: BlockPos, state: BlockState) :
     }
 
     override fun setRemoved() {
-
         if (level?.isClientSide == false) {
             for (i in seats.indices) {
                 seats[i].kill()
