@@ -22,8 +22,8 @@ class ShipHelmScreen(handler: ShipHelmScreenMenu, playerInventory: Inventory, te
     private lateinit var alignButton: ShipHelmButton
     private lateinit var disassembleButton: ShipHelmButton
 
-    private val pos = (Minecraft.getInstance().hitResult as? BlockHitResult)?.blockPos
-    private val ship: Ship? = pos?.let { Minecraft.getInstance().level?.getShipManagingPos(it) }
+    private var pos = (Minecraft.getInstance().hitResult as? BlockHitResult)?.blockPos
+    private var ship: Ship? = pos?.let { Minecraft.getInstance().level?.getShipManagingPos(it) }
 
     init {
         titleLabelX = 6
@@ -58,10 +58,14 @@ class ShipHelmScreen(handler: ShipHelmScreenMenu, playerInventory: Inventory, te
     }
 
     private fun updateButtons() {
-        val level = Minecraft.getInstance().level ?: return
-        val isLookingAtShip = level.getShipManagingPos(pos ?: return) != null
+        pos = (Minecraft.getInstance().hitResult as? BlockHitResult)?.blockPos
+        ship = pos?.let { Minecraft.getInstance().level?.getShipManagingPos(it) }
+
+        val isLookingAtShip = ship != null
+
         assembleButton.active = !isLookingAtShip
         disassembleButton.active = EurekaConfig.SERVER.allowDisassembly && isLookingAtShip
+        alignButton.active = disassembleButton.active
     }
 
     override fun renderBg(matrixStack: PoseStack, partialTicks: Float, mouseX: Int, mouseY: Int) {
@@ -86,8 +90,8 @@ class ShipHelmScreen(handler: ShipHelmScreenMenu, playerInventory: Inventory, te
 
         // TODO render stats
         if (ship == null) return
-        ship.slug?.let { font.draw(matrixStack, it, titleLabelX.toFloat(), titleLabelY.toFloat(), 0x404040) }
-        font.draw(matrixStack, String.format("%.2f",ship.velocity.length()) + "m/s", 8f, 25f, 0x404040)
+        ship!!.slug?.let { font.draw(matrixStack, it, titleLabelX.toFloat(), titleLabelY.toFloat(), 0x404040) }
+        font.draw(matrixStack, String.format("%.2f", ship!!.velocity.length()) + "m/s", 8f, 25f, 0x404040)
     }
 
     // mojank doesn't check mouse release for their widgets for some reason
