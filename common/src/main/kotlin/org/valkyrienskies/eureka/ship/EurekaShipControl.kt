@@ -308,9 +308,14 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
                 idealUpwardVel = Vector3d(0.0, 1.0, 0.0)
                     .mul(control.upImpulse.toDouble())
                     .mul(
-                        EurekaConfig.SERVER.baseImpulseElevationRate +
+                        if (control.upImpulse < 0.0f) {
+                            EurekaConfig.SERVER.baseImpulseDescendRate
+                        }
+                        else {
+                            EurekaConfig.SERVER.baseImpulseElevationRate +
                             // Smoothing for how the elevation scales as you approaches the balloonElevationMaxSpeed
                             smoothing(2.0, EurekaConfig.SERVER.balloonElevationMaxSpeed, balloonForceProvided / mass)
+                        }
                     )
             }
         }
