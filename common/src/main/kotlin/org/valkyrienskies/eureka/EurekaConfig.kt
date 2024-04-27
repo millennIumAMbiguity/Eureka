@@ -14,7 +14,7 @@ object EurekaConfig {
     class Server {
 
         @JsonSchema(description = "Movement power per engine when heated fully")
-        val enginePowerLinear: Float = 2000000f
+        val enginePowerLinear: Float = 500000f
 
         @JsonSchema(description = "Movement power per engine with minimal heat")
         val enginePowerLinearMin: Float = 10000f
@@ -64,8 +64,11 @@ object EurekaConfig {
 
         // Sensitivity of the up/down impulse buttons.
         // TODO maybe should be moved to VS2 client-side config?
-        @JsonSchema(description = "Vertical sensitivity up ascend/descend")
+        @JsonSchema(description = "Vertical sensitivity when ascending")
         var baseImpulseElevationRate = 2.0
+
+        @JsonSchema(description = "Vertical sensitivity when descending")
+        var baseImpulseDescendRate = 4.0
 
         @JsonSchema(description = "The max elevation speed boost gained by having extra extra balloons")
         var balloonElevationMaxSpeed = 5.5
@@ -104,6 +107,20 @@ object EurekaConfig {
         // Max anti-velocity used when trying to stop the ship
         @JsonSchema(description = "How fast a ship will stop. 1 = fast stop, 0 = slow stop")
         var linearStabilizeMaxAntiVelocity = 1.0
+
+        @JsonSchema(description = "How fast a ship will stop and accelerate.")
+        var linearMassScaling = 0.0002
+
+        // Must be positive. higher value will case slower acceleration and deceleration.
+        @JsonSchema(description = "Base mass for linear acceleration in Kg.")
+        var linearBaseMass = 50.0
+
+        //when value is same as linearMaxMass, actual value will be 1/3. actual value will be close to linearMaxMass when 5 times over
+        @JsonSchema(description = "Max smoothing value, will smooth out before reaching max value.")
+        var linearMaxMass = 10000.0
+
+        @JsonSchema(description = "Max unscaled speed in m/s.")
+        var linearMaxSpeed = 15.0
 
         // Anti-velocity mass relevance when stopping the ship
         // Max 10.0 (means no mass irrelevance)

@@ -7,10 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import net.minecraft.core.Direction
 import net.minecraft.network.chat.Component
 import net.minecraft.world.entity.player.Player
-import org.joml.AxisAngle4d
-import org.joml.Quaterniond
-import org.joml.Vector3d
-import org.joml.Vector3dc
+import org.joml.*
 import org.valkyrienskies.core.api.VSBeta
 import org.valkyrienskies.core.api.ships.PhysShip
 import org.valkyrienskies.core.api.ships.ServerShip
@@ -22,11 +19,7 @@ import org.valkyrienskies.core.impl.game.ships.PhysShipImpl
 import org.valkyrienskies.eureka.EurekaConfig
 import org.valkyrienskies.mod.api.SeatedControllingPlayer
 import org.valkyrienskies.mod.common.util.toJOMLD
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.floor
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.*
 
 @JsonAutoDetect(
     fieldVisibility = JsonAutoDetect.Visibility.ANY,
@@ -50,13 +43,11 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
 
     private var angleUntilAligned = 0.0
     private var positionUntilAligned = Vector3d()
-    private var alignTarget = 0
     val canDisassemble
         get() = ship != null &&
             disassembling &&
             abs(angleUntilAligned) < DISASSEMBLE_THRESHOLD &&
             positionUntilAligned.distanceSquared(this.ship!!.transform.positionInWorld) < 4.0
-    val aligningTo: Direction get() = Direction.from2DDataValue(alignTarget)
     var consumed = 0f
         private set
 
@@ -67,6 +58,9 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
 
     @JsonIgnore
     var seatedPlayer: Player? = null
+
+    @JsonIgnore
+    var oldSpeed = 0.0
 
     private data class ControlData(
         val seatInDirection: Direction,
@@ -108,7 +102,7 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
         val balloonForceProvided = balloons * forcePerBalloon
 
         val buoyantFactorPerFloater = min(
-            EurekaConfig.SERVER.floaterBuoyantFactorPerKg / 15 / mass,
+            EurekaConfig.SERVER.floaterBuoyantFactorPerKg / 15.0 / mass,
             EurekaConfig.SERVER.maxFloaterBuoyantFactor
         )
 
@@ -122,17 +116,17 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
         // [x] Rewrite Alignment code
         // [x] Revisit Elevation code
         // [x] Balloon limiter
-        // [ ] Add Cruise code
-        // [ ] Rotation based of shipsize
+        // [x] Add Cruise code
+        // [x] Rotation based of ship size
         // [x] Engine consumption
-        // [ ] Fix elevation sensititvity
+        // [x] Fix elevation sensitivity
 
         // region Aligning
 
         val invRotation = physShip.poseVel.rot.invert(Quaterniond())
         val invRotationAxisAngle = AxisAngle4d(invRotation)
         // Floor makes a number 0 to 3, which corresponds to direction
-        alignTarget = floor((invRotationAxisAngle.angle / (PI * 0.5)) + 4.5).toInt() % 4
+        val alignTarget = floor((invRotationAxisAngle.angle / (PI * 0.5)) + 4.5).toInt() % 4
         angleUntilAligned = (alignTarget.toDouble() * (0.5 * PI)) - invRotationAxisAngle.angle
         if (disassembling) {
             val pos = ship.transform.positionInWorld
@@ -155,36 +149,29 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
         // endregion
 
         val controllingPlayer = ship.getAttachment(SeatedControllingPlayer::class.java)
+        val validPlayer = controllingPlayer != null && !anchored
+
+        if (isCruising && anchored) {
+            isCruising = false
+            showCruiseStatus()
+        }
+
         stabilize(
             physShip,
             omega,
             vel,
             physShip,
-            controllingPlayer == null && !aligning,
-            controllingPlayer == null
+            !validPlayer && !aligning,
+            !validPlayer
         )
 
         var idealUpwardVel = Vector3d(0.0, 0.0, 0.0)
 
-        val player = controllingPlayer
 
-        if (player != null) {
-            val currentControlData = ControlData.create(player)
+        if (validPlayer) {
+            val player = controllingPlayer!!
 
-            // If the player is currently controlling the ship
-            if (!wasCruisePressed && player.cruise) {
-                // the player pressed the cruise button
-                isCruising = !isCruising
-                showCruiseStatus()
-            } else if (!player.cruise &&
-                isCruising &&
-                (player.leftImpulse != 0.0f || player.sprintOn || player.upImpulse != 0.0f || player.forwardImpulse != 0.0f) &&
-                currentControlData != controlData
-            ) {
-                // The player pressed another button
-                isCruising = false
-                showCruiseStatus()
-            }
+            val currentControlData = getControlData(player)
 
             if (!isCruising) {
                 // only take the latest control data if the player is not cruising
@@ -192,129 +179,172 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
             }
 
             wasCruisePressed = player.cruise
-        } else if (!isCruising) {
-            // If the player isn't controlling the ship, and not cruising, reset the control data
-            controlData = null
+        } else {
+            if (!isCruising) {
+                // If the player isn't controlling the ship, and not cruising, reset the control data
+                controlData = null
+                oldSpeed = 0.0
+            }
         }
 
         controlData?.let { control ->
-            // region Player controlled rotation
-            val transform = physShip.transform
-            val aabb = ship.worldAABB
-            val center = transform.positionInWorld
-            val stw = transform.shipToWorld
-            val wts = transform.worldToShip
-
-            val largestDistance = run {
-                var dist = center.distance(aabb.minX(), center.y(), aabb.minZ())
-                dist = max(dist, center.distance(aabb.minX(), center.y(), aabb.maxZ()))
-                dist = max(dist, center.distance(aabb.maxX(), center.y(), aabb.minZ()))
-                dist = max(dist, center.distance(aabb.maxX(), center.y(), aabb.maxZ()))
-
-                dist
-            }.coerceIn(0.5, EurekaConfig.SERVER.maxSizeForTurnSpeedPenalty)
-
-            val maxLinearAcceleration = EurekaConfig.SERVER.turnAcceleration
-            val maxLinearSpeed = EurekaConfig.SERVER.turnSpeed + extraForceAngular
-
-            // acceleration = alpha * r
-            // therefore: maxAlpha = maxAcceleration / r
-            val maxOmegaY = maxLinearSpeed / largestDistance
-            val maxAlphaY = maxLinearAcceleration / largestDistance
-
-            val isBelowMaxTurnSpeed = abs(omega.y()) < maxOmegaY
-
-            val normalizedAlphaYMultiplier =
-                if (isBelowMaxTurnSpeed && control.leftImpulse != 0.0f) control.leftImpulse.toDouble()
-                else -omega.y().coerceIn(-1.0, 1.0)
-
-            val idealAlphaY = normalizedAlphaYMultiplier * maxAlphaY
-
-            val alpha = Vector3d(0.0, idealAlphaY, 0.0)
-            val angularImpulse =
-                stw.transformDirection(moiTensor.transform(wts.transformDirection(Vector3d(alpha))))
-
-            val torque = Vector3d(angularImpulse)
-            physShip.applyInvariantTorque(torque)
-            // endregion
-
-            // region Player controlled banking
-            val rotationVector = control.seatInDirection.normal.toJOMLD()
-
-            physShip.poseVel.transformDirection(rotationVector)
-
-            rotationVector.y = 0.0
-
-            rotationVector.mul(idealAlphaY * -1.5)
-
-            physShip.poseVel.rot.transform(
-                moiTensor.transform(
-                    physShip.poseVel.rot.transformInverse(rotationVector)
-                )
-            )
-
-            physShip.applyInvariantTorque(rotationVector)
-            // endregion
-
-            // region Player controlled forward and backward thrust
-            val forwardVector = control.seatInDirection.normal.toJOMLD()
-            physShip.poseVel.rot.transform(forwardVector)
-            forwardVector.y *= 0.1 // Reduce vertical thrust
-            forwardVector.normalize()
-
-            forwardVector.mul(control.forwardImpulse.toDouble())
-
-            val playerUpDirection = physShip.poseVel.transformDirection(Vector3d(0.0, 1.0, 0.0))
-            val velOrthogonalToPlayerUp =
-                vel.sub(playerUpDirection.mul(playerUpDirection.dot(vel), Vector3d()), Vector3d())
-
-            // This is the speed that the ship is always allowed to go out, without engines
-            val baseForwardVel = Vector3d(forwardVector).mul(EurekaConfig.SERVER.baseSpeed)
-            val baseForwardForce = Vector3d(baseForwardVel).sub(velOrthogonalToPlayerUp).mul(mass * 10)
-
-            // This is the maximum speed we want to go in any scenario (when not sprinting)
-            val idealForwardVel = Vector3d(forwardVector).mul(EurekaConfig.SERVER.maxCasualSpeed)
-            val idealForwardForce = Vector3d(idealForwardVel).sub(velOrthogonalToPlayerUp).mul(mass * 10)
-
-            val extraForceNeeded = Vector3d(idealForwardForce).sub(baseForwardForce)
-            val actualExtraForce = Vector3d(baseForwardForce)
-
-            if (extraForceLinear != 0.0) {
-                actualExtraForce.fma(min(extraForceLinear / extraForceNeeded.length(), 1.0), extraForceNeeded)
-            }
-
-            physShip.applyInvariantForce(actualExtraForce)
-            // endregion
-
-            // Player controlled elevation
-            if (control.upImpulse != 0.0f) {
-                idealUpwardVel = Vector3d(0.0, 1.0, 0.0)
-                    .mul(control.upImpulse.toDouble())
-                    .mul(
-                        EurekaConfig.SERVER.baseImpulseElevationRate +
-                            // Smoothing for how the elevation scales as you approaches the balloonElevationMaxSpeed
-                            smoothing(2.0, EurekaConfig.SERVER.balloonElevationMaxSpeed, balloonForceProvided / mass)
-                    )
-            }
+            applyPlayerControl(control, physShip)
+            idealUpwardVel = getPlayerUpwardVel(control, mass)
         }
 
         // region Elevation
-        val idealUpwardForce = Vector3d(
-            0.0,
-            idealUpwardVel.y() - vel.y() - (GRAVITY / EurekaConfig.SERVER.elevationSnappiness),
-            0.0
-        ).mul(mass * EurekaConfig.SERVER.elevationSnappiness)
+        val idealUpwardForce = (idealUpwardVel.y() - vel.y() - (GRAVITY / EurekaConfig.SERVER.elevationSnappiness)) *
+                mass * EurekaConfig.SERVER.elevationSnappiness
 
-        val actualUpwardForce = Vector3d(0.0, min(balloonForceProvided, max(idealUpwardForce.y(), 0.0)), 0.0)
-        physShip.applyInvariantForce(actualUpwardForce)
+        physShip.applyInvariantForce(Vector3d(0.0,
+            min(balloonForceProvided, max(idealUpwardForce, 0.0)) +
+            // Add drag to the y-component
+            vel.y() * -mass,
+            0.0)
+        )
         // endregion
 
-        // region Anchor
         physShip.isStatic = anchored
+    }
+
+    private fun getControlData(player: SeatedControllingPlayer): ControlData {
+
+        val currentControlData = ControlData.create(player)
+
+        if (!wasCruisePressed && player.cruise) {
+            // the player pressed the cruise button
+            isCruising = !isCruising
+            showCruiseStatus()
+        } else if (!player.cruise && isCruising &&
+            (player.leftImpulse != 0.0f || player.sprintOn || player.upImpulse != 0.0f || player.forwardImpulse != 0.0f) &&
+            currentControlData != controlData
+        ) {
+            // The player pressed another button
+            isCruising = false
+            showCruiseStatus()
+        }
+
+        return currentControlData
+    }
+
+    private fun applyPlayerControl(control: ControlData, physShip: PhysShipImpl) {
+
+        val ship = ship ?: return
+        val transform = physShip.transform
+        val aabb = ship.worldAABB
+        val center = transform.positionInWorld
+
+        // region Player controlled rotation
+        val moiTensor = physShip.inertia.momentOfInertiaTensor
+        val omega: Vector3dc = physShip.poseVel.omega
+
+        val largestDistance = run {
+            var dist = center.distance(aabb.minX(), center.y(), aabb.minZ())
+            dist = max(dist, center.distance(aabb.minX(), center.y(), aabb.maxZ()))
+            dist = max(dist, center.distance(aabb.maxX(), center.y(), aabb.minZ()))
+            dist = max(dist, center.distance(aabb.maxX(), center.y(), aabb.maxZ()))
+
+            dist
+        }.coerceIn(0.5, EurekaConfig.SERVER.maxSizeForTurnSpeedPenalty)
+
+        val maxLinearAcceleration = EurekaConfig.SERVER.turnAcceleration
+        val maxLinearSpeed = EurekaConfig.SERVER.turnSpeed + extraForceAngular
+
+        // acceleration = alpha * r
+        // therefore: maxAlpha = maxAcceleration / r
+        val maxOmegaY = maxLinearSpeed / largestDistance
+        val maxAlphaY = maxLinearAcceleration / largestDistance
+
+        val isBelowMaxTurnSpeed = abs(omega.y()) < maxOmegaY
+
+        val normalizedAlphaYMultiplier =
+            if (isBelowMaxTurnSpeed && control.leftImpulse != 0.0f) control.leftImpulse.toDouble()
+            else -omega.y().coerceIn(-1.0, 1.0)
+
+        val idealAlphaY = normalizedAlphaYMultiplier * maxAlphaY
+
+        physShip.applyInvariantTorque(moiTensor.transform(Vector3d(0.0, idealAlphaY, 0.0)))
         // endregion
 
-        // Add drag to the y-component
-        physShip.applyInvariantForce(Vector3d(vel.y()).mul(-mass))
+        physShip.applyInvariantTorque(getPlayerControlledBanking(control, physShip, moiTensor, -idealAlphaY))
+
+        physShip.applyInvariantForce(getPlayerForwardVel(control, physShip))
+    }
+
+    private fun getPlayerControlledBanking(control: ControlData, physShip: PhysShipImpl, moiTensor: Matrix3dc, strength: Double): Vector3d {
+        val rotationVector = control.seatInDirection.normal.toJOMLD()
+        physShip.poseVel.transformDirection(rotationVector)
+        rotationVector.y = 0.0
+        rotationVector.mul(strength * 1.5)
+
+        physShip.poseVel.rot.transform(
+            moiTensor.transform(
+                physShip.poseVel.rot.transformInverse(rotationVector)
+            )
+        )
+
+        return rotationVector
+    }
+
+    // Player controlled forward and backward thrust
+    private fun getPlayerForwardVel(control: ControlData, physShip: PhysShipImpl): Vector3d {
+
+        val mass10 = physShip.inertia.shipMass * 10
+        val vel: Vector3dc = physShip.poseVel.vel
+
+        // region Player controlled forward and backward thrust
+        val forwardVector = control.seatInDirection.normal.toJOMLD()
+        physShip.poseVel.rot.transform(forwardVector)
+        forwardVector.normalize()
+
+        val s = 1 / smoothingATanMax(
+            EurekaConfig.SERVER.linearMaxMass,
+            physShip.inertia.shipMass * EurekaConfig.SERVER.linearMassScaling + EurekaConfig.SERVER.linearBaseMass
+        )
+
+        val maxSpeed = EurekaConfig.SERVER.linearMaxSpeed / 15
+        oldSpeed = max(min(oldSpeed * (1 - s) + control.forwardImpulse.toDouble() * s, maxSpeed), -maxSpeed)
+        forwardVector.mul(oldSpeed)
+
+        val playerUpDirection = physShip.poseVel.transformDirection(Vector3d(0.0, 1.0, 0.0))
+        val velOrthogonalToPlayerUp = vel.sub(playerUpDirection.mul(playerUpDirection.dot(vel)), Vector3d())
+
+        // This is the speed that the ship is always allowed to go out, without engines
+        val baseForwardVel = Vector3d(forwardVector).mul(EurekaConfig.SERVER.baseSpeed)
+        val forwardForce = Vector3d(baseForwardVel).sub(velOrthogonalToPlayerUp).mul(mass10)
+
+        if (extraForceLinear != 0.0) {
+            // This is the maximum speed we want to go in any scenario (when not sprinting)
+            val idealForwardVel = Vector3d(forwardVector).mul(EurekaConfig.SERVER.maxCasualSpeed)
+            val idealForwardForce = Vector3d(idealForwardVel).sub(velOrthogonalToPlayerUp).mul(mass10)
+
+            val extraForceNeeded = Vector3d(idealForwardForce).sub(forwardForce)
+            forwardForce.fma(min(extraForceLinear / extraForceNeeded.length(), 1.0), extraForceNeeded)
+        }
+
+        return forwardForce
+    }
+
+    // Player controlled elevation
+    private fun getPlayerUpwardVel(control: ControlData, mass: Double): Vector3d {
+        if (control.upImpulse != 0.0f) {
+
+            val balloonForceProvided = balloons * forcePerBalloon
+
+            return Vector3d(0.0, 1.0, 0.0)
+                .mul(control.upImpulse.toDouble())
+                .mul(
+                    if (control.upImpulse < 0.0f) {
+                        EurekaConfig.SERVER.baseImpulseDescendRate
+                    }
+                    else {
+                        EurekaConfig.SERVER.baseImpulseElevationRate +
+                                // Smoothing for how the elevation scales as you approaches the balloonElevationMaxSpeed
+                                smoothing(2.0, EurekaConfig.SERVER.balloonElevationMaxSpeed, balloonForceProvided / mass)
+                    }
+                )
+        }
+        return Vector3d(0.0, 0.0, 0.0)
     }
 
     private fun showCruiseStatus() {
@@ -356,6 +386,14 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
      */
     private fun smoothing(smoothing: Double, max: Double, x: Double): Double = max - smoothing / (x + (smoothing / max))
 
+    /**
+     * g(x) = (tan^(-1)(x * smoothing)) / smoothing
+     */
+    private fun smoothingATan(smoothing: Double, x: Double): Double = atan(x * smoothing) / smoothing
+
+    // limit x to max using ATan
+    private fun smoothingATanMax(max: Double, x: Double): Double = smoothingATan(1 / (max * 0.638), x)
+
     companion object {
         fun getOrCreate(ship: ServerShip): EurekaShipControl {
             return ship.getAttachment<EurekaShipControl>()
@@ -374,7 +412,7 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
         powerLinear = 0.0
 
         extraForceAngular = powerAngular
-        powerAngular = 0.0;
+        powerAngular = 0.0
 
         consumed = physConsumption * /* should be physics ticks based*/ 0.1f
         physConsumption = 0.0f
