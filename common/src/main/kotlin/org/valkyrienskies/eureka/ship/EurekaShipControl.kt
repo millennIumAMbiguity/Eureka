@@ -289,7 +289,7 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
     // Player controlled forward and backward thrust
     private fun getPlayerForwardVel(control: ControlData, physShip: PhysShipImpl): Vector3d {
 
-        val mass10 = physShip.inertia.shipMass * 10
+        val scaledMass = physShip.inertia.shipMass *  EurekaConfig.SERVER.speedMassScale
         val vel: Vector3dc = physShip.poseVel.vel
 
         // region Player controlled forward and backward thrust
@@ -311,7 +311,7 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
 
         // This is the speed that the ship is always allowed to go out, without engines
         val baseForwardVel = Vector3d(forwardVector).mul(EurekaConfig.SERVER.baseSpeed)
-        val forwardForce = Vector3d(baseForwardVel).sub(velOrthogonalToPlayerUp).mul(mass10)
+        val forwardForce = Vector3d(baseForwardVel).sub(velOrthogonalToPlayerUp).mul(scaledMass)
 
         if (extraForceLinear != 0.0) {
             // engine boost
@@ -320,7 +320,7 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
 
             // This is the maximum speed we want to go in any scenario (when not sprinting)
             val idealForwardVel = Vector3d(forwardVector).mul(EurekaConfig.SERVER.maxCasualSpeed)
-            val idealForwardForce = Vector3d(idealForwardVel).sub(velOrthogonalToPlayerUp).mul(mass10)
+            val idealForwardForce = Vector3d(idealForwardVel).sub(velOrthogonalToPlayerUp).mul(scaledMass)
 
             val extraForceNeeded = Vector3d(idealForwardForce).sub(forwardForce)
             forwardForce.fma(min(extraForceLinear / extraForceNeeded.length(), 1.0), extraForceNeeded)
