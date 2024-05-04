@@ -9,6 +9,10 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.client.model.BakedModelManagerHelper;
 import net.fabricmc.fabric.api.client.model.ModelLoadingRegistry;
 import net.fabricmc.fabric.api.client.rendereregistry.v1.BlockEntityRendererRegistry;
+import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.fabric.api.resource.ResourcePackActivationType;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import org.valkyrienskies.core.impl.config.VSConfigClass;
@@ -28,6 +32,12 @@ public class EurekaModFabric implements ModInitializer {
         new ValkyrienSkiesModFabric().onInitialize();
 
         EurekaMod.init();
+
+        // TODO: make resources packs work
+        ModContainer eureka = FabricLoader.getInstance().getModContainer(EurekaMod.MOD_ID)
+                .orElseThrow(() -> new IllegalStateException("Eureka's ModContainer couldn't be found!"));
+        ResourceLocation packId = new ResourceLocation(EurekaMod.MOD_ID, "retro_helms");
+        ResourceManagerHelper.registerBuiltinResourcePack(packId, eureka, "Eureka retro helms", ResourcePackActivationType.NORMAL);
     }
 
     @Environment(EnvType.CLIENT)
