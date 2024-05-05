@@ -67,6 +67,9 @@ object EurekaConfig {
         @JsonSchema(description = "The maximum amount extra each floater will multiply the buoyant force by, irrespective of mass")
         var maxFloaterBuoyantFactor = 1.0
 
+        @JsonSchema(description = "how much the mass decreases the speed.")
+        var speedMassScale = 5.0
+
         // The velocity any ship at least can move at.
         @JsonSchema(description = "The speed a ship with no engines can move at")
         var baseSpeed = 3.0
