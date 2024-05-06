@@ -151,9 +151,15 @@ class EurekaShipControl : ShipForcesInducer, ServerTickListener {
         val controllingPlayer = ship.getAttachment(SeatedControllingPlayer::class.java)
         val validPlayer = controllingPlayer != null && !anchored
 
-        if (isCruising && anchored) {
-            isCruising = false
-            showCruiseStatus()
+
+        if (anchored) {
+            if (isCruising) {
+                isCruising = false
+                showCruiseStatus()
+            }
+
+            physShip.isStatic = true
+            return
         }
 
         stabilize(
